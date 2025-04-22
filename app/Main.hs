@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE InstanceSigs #-}
 
 module Main where
 
@@ -8,33 +7,23 @@ import Network.HTTP.Client
   ( Request(..), RequestBody(..), method, requestBody
   , parseRequest, Manager, httpLbs, responseBody
   )
-import Network.HTTP.Client.TLS (mkManagerSettings)
+import Network.HTTP.Client.TLS (mkManagerSettings, newTlsManagerWith)
 import Network.TLS ( ClientParams(..), defaultParamsClient, Shared(..), ValidationCache(..)  )
 import Data.X509.Validation (ValidationCacheResult(..)) -- <- ValidationCachePass lives here
 import Network.Connection (TLSSettings(..))
-import Network.HTTP.Client.TLS (newTlsManagerWith)
 import Data.Default.Class (def)
 import qualified Data.ByteString.Lazy.Char8 as L8
 import qualified Data.ByteString.Char8 as BS
--- import Data.ByteString
 import qualified Data.Aeson as Aeson
 import Data.Aeson ((.=), object)
 import Network.HTTP.Types.Method (methodPut)
-
--- import Data.List (isInfixOf)
--- import Control.Monad (unless)
--- import Data.Maybe (fromMaybe)
--- import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Vector as V
--- import Network.HTTP.Client.Conduit (bodyReaderSource)
--- import Network.HTTP.Types (Status(statusMessage))
--- import Control.Monad (forM)
 import Control.Concurrent.Async (mapConcurrently_)
 
 
--- Represents the HueBridge
+-- Represents the Hue Bridge Discovery IP JSON
 data HueBridge = HueBridge
   { id :: String
   , internalipaddress :: String
@@ -59,19 +48,6 @@ buildJsonPayloadLightsToggle b = object
   , "dynamics" .= object [ "duration" .= (0 :: Int) ] -- Transition time hard coded to 0 for the fastest speed possible
   ]
 
--- JSON payload creator
-buildJsonPayloadLightsOff :: Aeson.Value
-buildJsonPayloadLightsOff = object
-  [ "on"       .= object [ "on" .= False ]
-  , "dynamics" .= object [ "duration" .= (0 :: Int) ]
-  ]
-
-buildJsonPayloadLightsOn :: Aeson.Value
-buildJsonPayloadLightsOn = object
-  [ "on"       .= object [ "on" .= True ]
-  , "dynamics" .= object [ "duration" .= (0 :: Int) ]
-  ]
-
 buildJsonPayloadGenKey :: Aeson.Value
 buildJsonPayloadGenKey = object
   [ "devicetype"        .= ("lambda-hue#test01" :: String)
@@ -91,10 +67,8 @@ getInsecureManager = do
         }
   newTlsManagerWith $ mkManagerSettings (TLSSettings clientParams) Nothing
 
--- Sends the PUT request
-sendPutRequest :: String -> String -> Aeson.Value -> IO ()
-sendPutRequest key url jsonPayload = do
-  manager <- getInsecureManager
+sendPutRequest :: Manager -> String -> String -> Aeson.Value -> IO ()
+sendPutRequest manager key url jsonPayload = do
   initialRequest <- parseRequest url
   let request = initialRequest
         { method         = methodPut
@@ -105,19 +79,6 @@ sendPutRequest key url jsonPayload = do
   putStrLn "End of PUT fn... PUT Response:"
   L8.putStrLn $ responseBody response
 
--- Sends the GET request
--- sendGetRequest :: String -> String -> IO ()
--- sendGetRequest key url = do
---   manager <- getInsecureManager
---   initialRequest <- parseRequest url
---   let request = initialRequest
---         { method         = "GET"
---         , requestHeaders = [("hue-application-key", BS.pack key)]
---         }
---   response <- httpLbs request manager
---   putStrLn "GET Response:"
---   L8.putStrLn $ responseBody response
--- Modified GET request that returns body
 sendGetRequest :: String -> String -> IO L8.ByteString
 sendGetRequest key url = do
   manager <- getInsecureManager
@@ -187,24 +148,6 @@ extractBriFromBody body =
           ]
         _ -> []
     Nothing -> []
-
-
-
--- Sends a POST request without the Hue API header
--- used to gen a key
--- sendPostRequestNoAuth :: String -> Aeson.Value -> IO (Either String String)
--- sendPostRequestNoAuth url jsonPayload = do
---   manager <- getInsecureManager
---   initialRequest <- parseRequest url
---   let request = initialRequest
---         { method         = "POST"
---         , requestBody    = RequestBodyLBS $ Aeson.encode jsonPayload
---         -- , requestHeaders = [("Content-Type", "application/json")]
---         }
---   response <- httpLbs request manager
---   putStrLn "POST Response:"
---   L8.putStrLn $ responseBody response
---   return $ Right $ L8.unpack $ responseBody response
 
 sendPostRequestNoAuth :: String -> Aeson.Value -> IO (Either String String)
 sendPostRequestNoAuth url jsonPayload = do
@@ -287,23 +230,17 @@ main = do
   putStrLn ip
 
   -- Read or create key.txt file
-  -- keyFileContent <- readOrCreateFile keyFilePath
-  -- key <- if keyFileContent == "" -- File does not exist or is empty
-  --         then do
-  --          let genKeyUrl = "https://" ++ ip ++ "/api"
-  --          result <- sendPostRequestNoAuth genKeyUrl buildJsonPayloadGenKey -- Generate a new key with a POST request, user must press the button on Bridge to continue
-  --          case result of
-  --            Left err   -> putStrLn err >> return "" -- Some error, return nothing
-  --            Right key' -> writeFile keyFilePath key' >> return key' -- Key was successfully generated, save it to the file
-  --        else return keyFileContent
-  
-  -- Read or create key.txt file
   keyFileContent <- readOrCreateFile keyFilePath
-  key <- if keyFileContent == ""
-           then genKey ip keyFilePath
-           else return keyFileContent
+  key <- if keyFileContent == "" -- file does not exist or is empty
+           then genKey ip keyFilePath -- user must press the Hue Bridge link button to generate a key and continue
+           else return keyFileContent -- key was generated or already existed
   putStrLn key
 
+  manager <- getInsecureManager -- HTTP request SSL disabled
+  loop manager key ip -- print lights/states/bri and await for user inputs
+
+loop :: Manager -> String -> String -> IO ()
+loop manager key ip = do
   let url = mkHueApiUrl ip "/light"
   body <- sendGetRequest key url
   let ids = extractIdsFromBody body
@@ -314,71 +251,22 @@ main = do
   print names
   print states
   print bri
-  -- let url' = url ++ "/" ++ ids !! 2
-  -- putStrLn url'
-  -- print $ ids !! 2
-  -- sendPutRequest key url' $ buildJsonPayloadLightsToggle True
-  let toggleLight idx = sendPutRequest key (mkHueLightsUrl url (ids !! idx)) $ buildJsonPayloadLightsToggle $ not $ states !! idx
+
+  let toggleLight position = sendPutRequest manager
+                                            key
+                                            (mkHueLightsUrl url (ids !! position)) $
+                                            buildJsonPayloadLightsToggle $ not $ states !! position
+                                            
   userInput <- getLine
   case userInput of
-    -- let deskUrl = mkHueLightsUrl url $ ids !! 4
-    "d"  -> sendPutRequest key (mkHueLightsUrl url (ids !! 2)) $ buildJsonPayloadLightsToggle $ not $ states !! 2 -- Toggle DESK light
-    "b"  -> sendPutRequest key (mkHueLightsUrl url (ids !! 4)) $ buildJsonPayloadLightsToggle $ not $ states !! 4 -- Toggle BED  light
-    "c1" -> sendPutRequest key
-                           (mkHueLightsUrl url (ids !! 5)) $
-                           buildJsonPayloadLightsToggle $ not $ states !! 5
-    "c2" -> sendPutRequest key
-                           (mkHueLightsUrl url (ids !! 0)) $
-                           buildJsonPayloadLightsToggle $ not $ states !! 0
-    "c3" -> sendPutRequest key
-                           (mkHueLightsUrl url (ids !! 3)) $
-                           buildJsonPayloadLightsToggle $ not $ states !! 3
-    "c4" -> sendPutRequest key
-                           (mkHueLightsUrl url (ids !! 1)) $
-                           buildJsonPayloadLightsToggle $ not $ states !! 1
-    "c"  -> mapConcurrently_ toggleLight [5,0,3,1] -- Send the request to each CEILING lights in parallel to speed the toggle
-    "db" -> mapConcurrently_ toggleLight [2,4] -- Send the request to DESK and BED lights in parallel to speed the toggle
+    "d"  -> toggleLight 2  -- Toggle DESK     light
+    "b"  -> toggleLight 4  -- Toggle BED      light
+    "c1" -> toggleLight 5  -- Toggle CEILING1 light
+    "c2" -> toggleLight 0  -- Toggle CEILING2 light
+    "c3" -> toggleLight 3  -- Toggle CEILING3 light
+    "c4" -> toggleLight 1  -- Toggle CEILING4 light
+    "c"  -> mapConcurrently_ toggleLight [5,0,3,1] -- Send the request to each CEILING light in parallel
+    "db" -> mapConcurrently_ toggleLight [2,4] -- Send the request to DESK and BED lights in parallel
     _   -> return ()
-  main
 
--- ["Ceiling 2","Ceiling 4","Desk","Ceiling 3","Bed","Ceiling 1"]
-
-  -- results <- forM ids $ \rid -> d
-  --   let url' = url ++ "/" ++ rid
-  --   putStrLn url'
-  --   body <- sendGetRequest key url'
-  --   let states = extractStatesFromBody body
-  --   return states
-  
-  -- let allStates = concat results
-  -- print allStates 
-
-  -- let url' = url ++ "/" ++ "5a3c6903-f1e1-44b9-ae33-e89ed65651f8"
-  -- sendGetRequest key url' >>= print
-
-
-
-
-  -- keyFileContent <- readOrCreateFile keyFilePath
-  -- if keyFileContent == "" then
-  --   let genKeyUrl = "https://" ++ ip ++ "/api"
-  --       genKey    = sendPostRequestNoAuth genKeyUrl buildJsonPayloadGenKey
-  --   in genKey
-  --   else return ()
-
-  -- keyFileContent <- readOrCreateFile keyFilePath
-  -- key <- if keyFileContent == "" then do
-  --          let genKeyUrl = "https://" ++ ip ++ "/api"
-  --          result <- sendPostRequestNoAuth genKeyUrl buildJsonPayloadGenKey
-  --          case result of
-  --            Left err -> putStrLn err >> return ""
-  --            Right key' -> writeFile keyFilePath key' >> return key'
-  --        else return keyFileContent
-
-  -- putStrLn key
-
-  -- POST Response:
-  -- [{"error":{"type":101,"address":"","description":"link button not pressed"}}]
-  
-  -- POST Response:
-  -- [{"success":{"username":"QYB7U17TDDHb9dQ0AUuHqUJBXU0xSPB-e67kZznm","clientkey":"40202CE3F4FCCD491F37872A52DA991B"}}]
+  loop manager key ip
