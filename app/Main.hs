@@ -2,6 +2,8 @@
 
 module Main where
 
+-- import LambdaHue.Utils
+
 import System.Directory (doesFileExist)
 import Network.HTTP.Client
   ( Request(..), RequestBody(..), method, requestBody
@@ -21,6 +23,8 @@ import qualified Data.Text as T
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Vector as V
 import Control.Concurrent.Async (mapConcurrently_)
+import Data.Char (isAlpha, isDigit)
+import Text.Read (readMaybe)
 
 
 -- Represents the Hue Bridge Discovery IP JSON
@@ -45,7 +49,21 @@ readOrCreateFile filePath = do
 buildJsonPayloadLightsToggle :: Bool -> Aeson.Value
 buildJsonPayloadLightsToggle b = object
   [ "on"       .= object [ "on" .= b ] -- True to turn ON, False to turn OFF
-  , "dynamics" .= object [ "duration" .= (0 :: Int) ] -- Transition time hard coded to 0 for the fastest speed possible
+  , "dynamics" .= object [ "duration" .= (0 :: Int) ]
+  ]
+
+buildJsonPayloadSetBri :: Int -> Int -> Aeson.Value
+buildJsonPayloadSetBri transitionTime bri = object
+  [ "dimming"       .= object [ "brightness" .= bri ]
+  , "dynamics" .= object [ "duration" .= transitionTime ] -- Default transition time is 400 (ms). Set to 0 for max speed
+  ]
+
+buildJsonPayloadSetXy :: Int -> (Double,Double) -> Aeson.Value
+buildJsonPayloadSetXy transitionTime (x,y) = object -- Hue API default transition time is 400 (ms)
+  [ "color" .= object
+      [ "xy"       .= object [ "x" .= x, "y" .= y ] -- True to turn ON, False to turn OFF
+      , "dynamics" .= object [ "duration" .= transitionTime ] -- Default transition time is 400 (ms). Set to 0 for max speed
+      ]
   ]
 
 buildJsonPayloadGenKey :: Aeson.Value
@@ -79,9 +97,8 @@ sendPutRequest manager key url jsonPayload = do
   putStrLn "End of PUT fn... PUT Response:"
   L8.putStrLn $ responseBody response
 
-sendGetRequest :: String -> String -> IO L8.ByteString
-sendGetRequest key url = do
-  manager <- getInsecureManager
+sendGetRequest :: Manager -> String -> String -> IO L8.ByteString
+sendGetRequest manager key url = do
   initialRequest <- parseRequest url
   let request = initialRequest
         { method = "GET"
@@ -92,6 +109,34 @@ sendGetRequest key url = do
   let body = responseBody response
   -- L8.putStrLn body
   return body
+
+sendPostRequestNoAuth :: String -> Aeson.Value -> IO (Either String String)
+sendPostRequestNoAuth url jsonPayload = do
+  manager <- getInsecureManager
+  initialRequest <- parseRequest url
+  let request = initialRequest
+        { method = "POST"
+        , requestBody = RequestBodyLBS $ Aeson.encode jsonPayload
+        }
+  response <- httpLbs request manager
+  putStrLn "End of POST fn... POST Response:"
+  L8.putStrLn $ responseBody response
+
+  let responseBodyValue = Aeson.decode (responseBody response) :: Maybe [Aeson.Value]
+  case responseBodyValue of
+    Just [Aeson.Object obj] ->
+      case (KM.lookup "success" obj, KM.lookup "error" obj) of
+        (Just (Aeson.Object successObj), _) ->
+          case KM.lookup "username" successObj of
+            Just (Aeson.String username) -> return $ Right $ T.unpack username
+            _ -> return $ Left "Success but no username found."
+        (_, Just (Aeson.Object errorObj)) ->
+          case KM.lookup "description" errorObj of
+            Just (Aeson.String desc) -> return $ Left $ T.unpack desc
+            _ -> return $ Left "Error occurred but no description provided."
+        _ -> return $ Left "Unexpected response format."
+    _ -> return $ Left "Failed to parse response as expected JSON."
+
 
 -- Extract IDs from response body
 extractIdsFromBody :: L8.ByteString -> [String]
@@ -149,33 +194,6 @@ extractBriFromBody body =
         _ -> []
     Nothing -> []
 
-sendPostRequestNoAuth :: String -> Aeson.Value -> IO (Either String String)
-sendPostRequestNoAuth url jsonPayload = do
-  manager <- getInsecureManager
-  initialRequest <- parseRequest url
-  let request = initialRequest
-        { method = "POST"
-        , requestBody = RequestBodyLBS $ Aeson.encode jsonPayload
-        }
-  response <- httpLbs request manager
-  putStrLn "End of POST fn... POST Response:"
-  L8.putStrLn $ responseBody response
-
-  let responseBodyValue = Aeson.decode (responseBody response) :: Maybe [Aeson.Value]
-  case responseBodyValue of
-    Just [Aeson.Object obj] ->
-      case (KM.lookup "success" obj, KM.lookup "error" obj) of
-        (Just (Aeson.Object successObj), _) ->
-          case KM.lookup "username" successObj of
-            Just (Aeson.String username) -> return $ Right $ T.unpack username
-            _ -> return $ Left "Success but no username found."
-        (_, Just (Aeson.Object errorObj)) ->
-          case KM.lookup "description" errorObj of
-            Just (Aeson.String desc) -> return $ Left $ T.unpack desc
-            _ -> return $ Left "Error occurred but no description provided."
-        _ -> return $ Left "Unexpected response format."
-    _ -> return $ Left "Failed to parse response as expected JSON."
-
 -- Finds bridges
 findBridgesOnNetwork :: IO (Either String [HueBridge])
 findBridgesOnNetwork = do
@@ -193,11 +211,11 @@ getMainBridgeIp = do
     Right [] -> return $ Left "No Hue Bridges found."
     Right (bridge:_) -> return $ Right (internalipaddress bridge)
 
-mkHueApiUrl :: String -> String -> String
-mkHueApiUrl ip param = "https://" ++ ip ++ "/clip/v2/resource" ++ param
+apiHueUrl :: String -> String -> String
+apiHueUrl ip param = "https://" ++ ip ++ "/clip/v2/resource" ++ param
 
-mkHueLightsUrl :: String -> String -> String
-mkHueLightsUrl baseUrl lightId = baseUrl ++ "/" ++ lightId
+apiLightUrl :: String -> String -> String
+apiLightUrl hueUrl lightId = hueUrl ++ "/" ++ lightId
 
 genKey :: String -> FilePath -> IO String
 genKey ip keyFilePath = do
@@ -213,8 +231,57 @@ genKey ip keyFilePath = do
       writeFile keyFilePath key
       return key
 
+data InputValue
+  = S String
+  | I Int
+  | SI String Int
+  | SS String String
+  deriving (Show)
+
+-- Extract String from S
+extractS :: InputValue -> String
+extractS (S s) = s
+
+-- Extract Int from I
+extractI :: InputValue -> Int
+extractI (I i) = i
+
+-- Extract (String, Int) from SI
+extractSI :: InputValue -> (String, Int)
+extractSI (SI s i) = (s, i)
+
+-- Extract (String, String) from SS
+extractSS :: InputValue -> (String, String)
+extractSS (SS s1 s2) = (s1, s2)
+
+handleInput :: String -> IO InputValue
+handleInput input =
+  case words input of
+    [s]
+      | all isAlpha s || (isAlpha (head s) && all isDigit (tail s)) -> return (S s)
+      | Just i <- readMaybe s -> return (I i)
+
+    [s, numStr]
+      | Just i <- readMaybe numStr, i >= 0, i <= 100 -> return (SI s i)
+
+    [s1, s2] -> return (SS s1 s2)
+
+    _ -> return (S "")  -- default case, returns an empty string in case of invalid input
+
+getListIndex :: [a] -> [Int]
+getListIndex xs = [i | (i, _) <- zip [0..] xs]
+
+getTrueIndexes :: [Bool] -> [Int]
+getTrueIndexes boolList = [i | (i, True) <- zip [0..] boolList]
+
+
 main :: IO ()
 main = do
+  -- test <- getLine
+  -- ipt <- handleInput test
+  -- case ipt of
+  --   SS s1 s2 -> putStrLn $ s1 ++ s2
+
   let ipFilePath = "ip.txt"
       keyFilePath = "key.txt"
 
@@ -241,32 +308,73 @@ main = do
 
 loop :: Manager -> String -> String -> IO ()
 loop manager key ip = do
-  let url = mkHueApiUrl ip "/light"
-  body <- sendGetRequest key url
-  let ids = extractIdsFromBody body
-  let names = extractNamesFromBody body
-  let states = extractStatesFromBody body
-  let bri = extractBriFromBody body
+  let hueUrl = apiHueUrl ip "/light" -- https://<ip>/clip/v2/resource/ ++ light
+  body <- sendGetRequest manager key hueUrl
+  let ids    = extractIdsFromBody body
+      names  = extractNamesFromBody body
+      states = extractStatesFromBody body
+      bri    = extractBriFromBody body
   print ids
   print names
   print states
   print bri
 
+  let lightsIdx = getListIndex ids
+      lightsOnList = getTrueIndexes states
+
+  -- change this todo
   let toggleLight position = sendPutRequest manager
                                             key
-                                            (mkHueLightsUrl url (ids !! position)) $
+                                            (apiLightUrl hueUrl (ids !! position)) $ -- https://<ip>/clip/v2/resource/light ++ /<lightid>
                                             buildJsonPayloadLightsToggle $ not $ states !! position
-                                            
+  let setLightBri tt bri position = sendPutRequest manager
+                                                   key
+                                                   (apiLightUrl hueUrl (ids !! position)) $
+                                                   buildJsonPayloadSetBri tt bri
+  let setLightXy tt (x,y) position = sendPutRequest manager
+                                                    key
+                                                    (apiLightUrl hueUrl (ids !! position)) $
+                                                    buildJsonPayloadSetXy tt (x,y)
+
   userInput <- getLine
-  case userInput of
-    "d"  -> toggleLight 2  -- Toggle DESK     light
-    "b"  -> toggleLight 4  -- Toggle BED      light
-    "c1" -> toggleLight 5  -- Toggle CEILING1 light
-    "c2" -> toggleLight 0  -- Toggle CEILING2 light
-    "c3" -> toggleLight 3  -- Toggle CEILING3 light
-    "c4" -> toggleLight 1  -- Toggle CEILING4 light
-    "c"  -> mapConcurrently_ toggleLight [5,0,3,1] -- Send the request to each CEILING light in parallel
-    "db" -> mapConcurrently_ toggleLight [2,4] -- Send the request to DESK and BED lights in parallel
-    _   -> return ()
+  rawInput <- handleInput userInput
+  case rawInput of
+  -------------------------
+  --   Hue Light Order   --
+  -------------------------
+  --  [  CEILING 2  ]     0
+  --   , CEILING 4        1
+  --   , DESK             2
+  --   , CEILING 3        3
+  --   , BED              4
+  --   , CEILING 1  ]     5
+  -------------------------
+    S "d"  -> toggleLight 2
+    S "b"  -> toggleLight 4
+    S "c1" -> toggleLight 5
+    S "c2" -> toggleLight 0
+    S "c3" -> toggleLight 3
+    S "c4" -> toggleLight 1
+    S "c"  -> mapConcurrently_ toggleLight [5,0,3,1] -- Send the request to each CEILING light in parallel
+    S "db" -> mapConcurrently_ toggleLight [2,4]     -- Send the request to DESK and BED lights in parallel
+
+    S "br" -> mapConcurrently_(setLightXy 0 (0.3,0.3)) lightsOnList
+    S "am" -> mapConcurrently_(setLightXy 0 (0.5019, 0.4152)) lightsOnList
+
+    I bri  -> mapConcurrently_ (setLightBri 0 bri) lightsOnList
+
+    SI "d"  bri -> setLightBri 0 bri 2
+    SI "b"  bri -> setLightBri 0 bri 4
+    SI "c1" bri -> setLightBri 0 bri 5
+    SI "c2" bri -> setLightBri 0 bri 0
+    SI "c3" bri -> setLightBri 0 bri 3
+    SI "c4" bri -> setLightBri 0 bri 1
+    SI "c"  bri -> mapConcurrently_ (setLightBri 0 bri) [5,0,3,1]
+    SI "db" bri -> mapConcurrently_ (setLightBri 0 bri) [2,4]
+
+    -- SS light color -> putStrLn $ light ++ " " ++ color
+    SS "d" "br" -> setLightXy 0 (0.3,0.3) 2
+
+    _ -> return ()
 
   loop manager key ip
