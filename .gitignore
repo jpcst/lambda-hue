@@ -4,4 +4,4 @@ app/aqui.hs
 app/backupMain.hs
 app/bck.hs
 app/test.hs
-dist-newstyle
+dist-newstyle/
