@@ -82,7 +82,9 @@ executable lambda-hue
                       data-default-class,
                       unordered-containers,
                       vector,
-                      async
+                      async,
+                      containers,
+                      process
     -- Directories containing source files.
     hs-source-dirs:   app
 
