@@ -5,3 +5,6 @@ app/backupMain.hs
 app/bck.hs
 app/test.hs
 dist-newstyle/
+.DS_Store
+*.swp
+*.swo
