@@ -24,7 +24,7 @@ handleInput input =
     _ -> return (S "")  -- default case, returns an empty string in case of invalid input
 
 getListIndex :: [a] -> [Int]
-getListIndex xs = [i | (i, _) <- zip [0..] xs]
+getListIndex xs = [i | (i, _) <- zip [0..] xs] -- getListIndex xs = [0 .. length - 1]
 
 getTrueIndexes :: [Bool] -> [Int]
 getTrueIndexes boolList = [i | (i, True) <- zip [0..] boolList]

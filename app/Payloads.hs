@@ -22,6 +22,13 @@ buildJsonPayloadLightsToggle b = object
   , "dynamics" .= object [ "duration" .= (0 :: Int) ]
   ]
 
+-- JSON to toggle lights with transitionTime
+buildJsonPayloadLightsToggleWithTt :: Int -> Bool -> Aeson.Value
+buildJsonPayloadLightsToggleWithTt transitionTime b = object
+  [ "on"       .= object [ "on" .= b ] -- True to turn ON, False to turn OFF
+  , "dynamics" .= object [ "duration" .= transitionTime ]
+  ]
+
 -- JSON to set the brightness
 -- The light does not need to be ON to send the command, if the light if OFF when sent, when toggled ON it will be at the previously defined BRI
 buildJsonPayloadSetBri :: Int -> Int -> Aeson.Value

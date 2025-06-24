@@ -65,7 +65,7 @@ executable lambda-hue
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
-    other-modules: Payloads, Math, Bridge, Network, Types
+    other-modules: Utils, Payloads, Math, Bridge, Network, Types
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,
                       http-conduit,

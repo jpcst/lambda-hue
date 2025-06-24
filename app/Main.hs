@@ -8,49 +8,19 @@ import Payloads
 import Math
 import Types
 
+import System.Environment (getArgs)
+import Utils (runCommand)
+
 import System.Directory (doesFileExist)
 import Network.HTTP.Client (Manager)
--- import Network.HTTP.Client.TLS (mkManagerSettings, newTlsManagerWith)
--- import Network.TLS ( ClientParams(..), defaultParamsClient, Shared(..), ValidationCache(..)  )
--- import Data.X509.Validation (ValidationCacheResult(..)) -- <- ValidationCachePass lives here
--- import Network.Connection (TLSSettings(..))
--- import Data.Default.Class (def)
--- import qualified Data.ByteString.Lazy.Char8 as L8
--- import qualified Data.ByteString.Lazy.Search as BLS
-import Data.List (isInfixOf)
--- import qualified Data.ByteString.Char8 as BS
--- import qualified Data.Aeson as Aeson
--- import Data.Aeson ((.=), object)
--- import Network.HTTP.Types.Method (methodPut)
--- import qualified Data.Text as T
--- import qualified Data.Aeson.KeyMap as KM
--- import qualified Data.Vector as V
+import Data.List (isInfixOf, (\\))
 import Control.Concurrent.Async (mapConcurrently_)
--- import Data.Char (isAlpha, isDigit)
--- import Text.Read (readMaybe)
--- import qualified Data.Map as M
-import Data.List ((\\))
--- import Control.Exception (try, SomeException)
 import Control.Monad (void)
 import System.Info (os)
 import System.Process (callCommand)
--- import qualified Network.HTTP.Client as L8
 
 clearScreen :: IO ()
 clearScreen = callCommand $ if os == "mingw32" then "cls" else "clear"
-
--- Represents the Hue Bridge Discovery IP JSON
--- data HueBridge = HueBridge
---   { id :: String
---   , internalipaddress :: String
---   , port :: Integer
---   } deriving (Show)
-
--- instance Aeson.FromJSON HueBridge where
---   parseJSON = Aeson.withObject "HueBridge" $ \v ->
---     HueBridge <$> v Aeson..: "id"
---               <*> v Aeson..: "internalipaddress"
---               <*> v Aeson..: "port"
 
 -- Reads or creates the file
 readOrCreateFile :: FilePath -> IO String
@@ -58,277 +28,11 @@ readOrCreateFile filePath = do
   fileExists <- doesFileExist filePath
   if fileExists then readFile filePath else writeFile filePath "" >> return ""
 
--- buildJsonPayloadLightsToggle :: Bool -> Aeson.Value
--- buildJsonPayloadLightsToggle b = object
---   [ "on"       .= object [ "on" .= b ] -- True to turn ON, False to turn OFF
---   , "dynamics" .= object [ "duration" .= (0 :: Int) ]
---   ]
-
--- -- The light does not need to be ON to send the command, if the light if OFF when sent, when toggled ON it will be at the previously defined BRI
--- buildJsonPayloadSetBri :: Int -> Int -> Aeson.Value
--- buildJsonPayloadSetBri transitionTime bri = object
---   [ "dimming"       .= object [ "brightness" .= bri ]
---   , "dynamics" .= object [ "duration" .= transitionTime ] -- Default transition time is 400 (ms). Set to 0 for max speed
---   ]
-
--- buildJsonPayloadToggleAndBri :: Int -> Bool -> Int -> Aeson.Value
--- buildJsonPayloadToggleAndBri transitionTime b bri = object
---   [ "on"       .= object [ "on" .= b ] -- True to turn ON, False to turn OFF
---   , "dimming"  .= object [ "brightness" .= bri]
---   , "dynamics" .= object [ "duration" .= transitionTime ]
---   ]
-
--- buildJsonPayloadSetXy :: Int -> (Double,Double) -> Aeson.Value
--- buildJsonPayloadSetXy transitionTime (x,y) = object -- Hue API default transition time is 400 (ms)
---   [ "color" .= object
---       [ "xy"       .= object [ "x" .= x, "y" .= y ] -- True to turn ON, False to turn OFF
---       , "dynamics" .= object [ "duration" .= transitionTime ] -- Default transition time is 400 (ms). Set to 0 for max speed
---       ]
---   ]
-
--- buildJsonPayloadGenKey :: Aeson.Value
--- buildJsonPayloadGenKey = object
---   [ "devicetype"        .= ("lambda-hue#test01" :: String)
---   , "generateclientkey" .= True
---   ]
-
--- Disables SSL verification and creates a manager
--- getInsecureManager :: IO Manager
--- getInsecureManager = do
---   let clientParams = (defaultParamsClient "" "")
---         { clientSupported = def
---         , clientShared = def
---             { sharedValidationCache = ValidationCache
---                 (\_ _ _ -> return ValidationCachePass)
---                 (\_ _ _ -> return ())
---             }
---         }
---   newTlsManagerWith $ mkManagerSettings (TLSSettings clientParams) Nothing
-
--- sendPutRequest :: Manager -> String -> String -> Aeson.Value -> IO L8.ByteString
--- sendPutRequest manager key url jsonPayload = do
---   initialRequest <- parseRequest url
---   let request = initialRequest
---         { method         = methodPut
---         , requestBody    = RequestBodyLBS $ Aeson.encode jsonPayload
---         , requestHeaders = [("hue-application-key", BS.pack key)]
---         }
---   response <- httpLbs request manager
---   -- putStrLn "End of PUT fn... PUT Response:"
---   -- L8.putStrLn $ responseBody response
---   return $ responseBody response
-
--- sendGetRequest :: Manager -> String -> String -> IO (Either String L8.ByteString)
--- sendGetRequest manager key url = do
---   result <- try $ do
---     initialRequest <- parseRequest url
---     let request = initialRequest
---           { method = "GET"
---           , requestHeaders = [("hue-application-key", BS.pack key)]
---           }
---     response <- httpLbs request manager
---     -- putStrLn "End of GET fn... GET Response:"
---     return $   responseBody response
---   case result of
---     Left err   -> return (Left $ show (err :: SomeException))
---     Right body -> do
---       let bodyStr = L8.unpack body
---       if "<html>" `isInfixOf` bodyStr && "no lighting" `isInfixOf` bodyStr
---         then return (Left "Invalid Hue key: got HTML response indicating no lighting")
---         else return (Right body)
-
--- sendPostRequestNoAuth :: String -> Aeson.Value -> IO (Either String String)
--- sendPostRequestNoAuth url jsonPayload = do
---   manager <- getInsecureManager
---   initialRequest <- parseRequest url
---   let request = initialRequest
---         { method = "POST"
---         , requestBody = RequestBodyLBS $ Aeson.encode jsonPayload
---         }
---   response <- httpLbs request manager
---   putStrLn "End of POST fn... POST Response:"
---   L8.putStrLn $ responseBody response
-
---   let responseBodyValue = Aeson.decode (responseBody response) :: Maybe [Aeson.Value]
---   case responseBodyValue of
---     Just [Aeson.Object obj] ->
---       case (KM.lookup "success" obj, KM.lookup "error" obj) of
---         (Just (Aeson.Object successObj), _) ->
---           case KM.lookup "username" successObj of
---             Just (Aeson.String username) -> return $ Right $ T.unpack username
---             _ -> return $ Left "Success but no username found."
---         (_, Just (Aeson.Object errorObj)) ->
---           case KM.lookup "description" errorObj of
---             Just (Aeson.String desc) -> return $ Left $ T.unpack desc
---             _ -> return $ Left "Error occurred but no description provided."
---         _ -> return $ Left "Unexpected response format."
---     _ -> return $ Left "Failed to parse response as expected JSON."
-
-
--- Extract IDs from response body
--- extractIdsFromBody :: L8.ByteString -> [String]
--- extractIdsFromBody body =
---   case Aeson.decode body :: Maybe Aeson.Object of
---     Just obj ->
---       case KM.lookup "data" obj of
---         Just (Aeson.Array arr) ->
---           [ T.unpack idText
---           | Aeson.Object item <- V.toList arr
---           , Just (Aeson.String idText) <- [KM.lookup "id" item]
---           ]
---         _ -> []
---     Nothing -> []
-
--- extractNamesFromBody :: L8.ByteString -> [String]
--- extractNamesFromBody body =
---   case Aeson.decode body :: Maybe Aeson.Object of
---     Just obj ->
---       case KM.lookup "data" obj of
---         Just (Aeson.Array arr) ->
---           [ T.unpack nameText
---           | Aeson.Object item <- V.toList arr
---           , Just (Aeson.Object metadata) <- [KM.lookup "metadata" item]
---           , Just (Aeson.String nameText) <- [KM.lookup "name" metadata]
---           ]
---         _ -> []
---     Nothing -> []
-
--- extractStatesFromBody :: L8.ByteString -> [Bool]
--- extractStatesFromBody body =
---   case Aeson.decode body :: Maybe Aeson.Object of
---     Just obj ->
---       case KM.lookup "data" obj of
---         Just (Aeson.Array arr) ->
---           [ b
---           | Aeson.Object item <- V.toList arr
---           , Just (Aeson.Object onObj) <- [KM.lookup "on" item]
---           , Just (Aeson.Bool b) <- [KM.lookup "on" onObj]
---           ]
---         _ -> []
---     Nothing -> []
-
--- extractBriFromBody :: L8.ByteString -> [Double]
--- extractBriFromBody body =
---   case Aeson.decode body :: Maybe Aeson.Object of
---     Just obj ->
---       case KM.lookup "data" obj of
---         Just (Aeson.Array arr) ->
---           [ realToFrac n
---           | Aeson.Object item <- V.toList arr
---           , Just (Aeson.Object dimming) <- [KM.lookup "dimming" item]
---           , Just (Aeson.Number n) <- [KM.lookup "brightness" dimming]
---           ]
---         _ -> []
---     Nothing -> []
-
--- -- Finds bridges
--- findBridgesOnNetwork :: IO (Either String [HueBridge])
--- findBridgesOnNetwork = do
---   request <- parseRequest "https://discovery.meethue.com/"
---   response <- httpLbs request =<< getInsecureManager
---   let body = responseBody response
---   return $ Aeson.eitherDecode body
-
--- -- Gets IP
--- getMainBridgeIp :: IO (Either String String)
--- getMainBridgeIp = do
---   result <- findBridgesOnNetwork
---   case result of
---     Left err -> return $ Left $ "Failed to decode JSON: " ++ err
---     Right [] -> return $ Left "No Hue Bridges found."
---     Right (bridge:_) -> return $ Right (internalipaddress bridge)
-
--- apiHueUrl :: String -> String -> String
--- apiHueUrl ip param = "https://" ++ ip ++ "/clip/v2/resource" ++ param
-
--- apiLightUrl :: String -> String -> String
--- apiLightUrl hueUrl lightId = hueUrl ++ "/" ++ lightId
-
--- genKey :: String -> FilePath -> IO String
--- genKey ip keyFilePath = do
---   let genKeyUrl = "https://" ++ ip ++ "/api"
---   result <- sendPostRequestNoAuth genKeyUrl buildJsonPayloadGenKey
---   case result of
---     Left err -> do
---       putStrLn $ "Error: " ++ err
---       putStrLn "Push the link button on the Hue Bridge and then press any key to try again..."
---       _ <- getLine
---       genKey ip keyFilePath
---     Right key -> do
---       writeFile keyFilePath key
---       return key
-
--- data InputValue
---   = S   String
---   | I   Int
---   | SI  String Int
---   | SS  String String
---   | III Int Int Int
---   deriving (Show)
-
--- -- Extract String from S
--- extractS :: InputValue -> Maybe String
--- extractS (S s) = Just s
--- extractS _      = Nothing
-
--- -- Extract Int from I
--- extractI :: InputValue -> Maybe Int
--- extractI (I i) = Just i
--- extractI _     = Nothing
-
--- -- Extract (String, Int) from SI
--- extractSI :: InputValue -> Maybe (String, Int)
--- extractSI (SI s i) = Just (s, i)
--- extractSI _        = Nothing
-
--- -- Extract (String, String) from SS
--- extractSS :: InputValue -> Maybe (String, String)
--- extractSS (SS s1 s2) = Just (s1, s2)
--- extractSS _          = Nothing
-
--- handleInput :: String -> IO InputValue
--- handleInput input =
---   case words input of
---     [s]
---       | all isAlpha s || (isAlpha (head s) && all isDigit (tail s)) -> return (S s)
---       | Just i <- readMaybe s -> return (I i)
-
---     [s, numStr]
---       | Just i <- readMaybe numStr, i >= 0, i <= 100 -> return (SI s i)
-
---     [s1, s2] -> return $ SS s1 s2
-
---     [i1, i2, i3]
---       | Just r <- readMaybe i1
---       , Just g <- readMaybe i2
---       , Just b <- readMaybe i3 -> return $ III r g b
-
---     _ -> return (S "")  -- default case, returns an empty string in case of invalid input
-
--- getListIndex :: [a] -> [Int]
--- getListIndex xs = [i | (i, _) <- zip [0..] xs]
-
--- getTrueIndexes :: [Bool] -> [Int]
--- getTrueIndexes boolList = [i | (i, True) <- zip [0..] boolList]
-
--- convertRgbToXy :: (Int, Int, Int) -> (Double, Double) -- CIE 1931 light color supported by Hue Bridge API
--- convertRgbToXy (r, g, b) = (xHat, yHat)
---   where
---     r' = fromIntegral r
---     g' = fromIntegral g
---     b' = fromIntegral b
---     x      = 0.4124 * r' + 0.3576 * g' + 0.1805 * b'
---     y      = 0.2126 * r' + 0.7152 * g' + 0.0722 * b'
---     z      = 0.0193 * r' + 0.1192 * g' + 0.9505 * b'
---     total  = x + y + z
---     (xHat, yHat)
---       | total == 0 = (0,0)
---       | otherwise  = (x / total, y / total)
-
 main :: IO ()
 main = do
-  let ipFilePath = "ip.txt"
-      keyFilePath = "key.txt"
+  let homeDirPath = "/Users/jpcst/bin/"
+      ipFilePath = homeDirPath ++ "ip.txt"
+      keyFilePath = homeDirPath ++ "key.txt"
 
   -- Read or create ip.txt file
   ipFileContent <- readOrCreateFile ipFilePath
@@ -339,18 +43,32 @@ main = do
               Left err  -> putStrLn err >> return "" -- Some error, return nothing
               Right ip' -> writeFile ipFilePath ip' >> return ip' -- IP was found, save it to the file
           else return ipFileContent
-  putStrLn $ "Found IP file: " ++ ip
+  putStrLn $ "Found IP: " ++ ip ++ " at " ++ ipFilePath
 
   -- Read or create key.txt file
   keyFileContent <- readOrCreateFile keyFilePath
   key <- if keyFileContent == "" -- file does not exist or is empty
            then genKey ip keyFilePath -- user must press the Hue Bridge link button to generate a key and continue
            else return keyFileContent -- key was generated or already existed
-  putStrLn $ "Found Key file: " ++ key
+  putStrLn $ "Found Key: " ++ key ++ " at " ++ keyFilePath
 
-  -- foo
+  -- foo Utils
+  args <- getArgs
   manager <- getInsecureManager -- HTTP request SSL disabled
-  loop manager key ip -- print lights/states/bri and await for user input
+
+  if not (null args)
+    then do
+      Right body <- sendGetRequest manager key (apiHueUrl ip "/light")
+      let ids = extractIdsFromBody body
+          states = extractStatesFromBody body
+      runCommand manager key ip args ids states
+    else
+      loop manager key ip
+
+  -- test
+  -- if null args
+  --   then loop manager key ip -- print lights/states/bri and await for user input
+  --   else runCommand manager key ip args ids
 
 loop :: Manager -> String -> String -> IO ()
 loop manager key ip = do
@@ -392,31 +110,20 @@ loop manager key ip = do
       mapM_ (\idx ->
           let name = names !! idx
               state = show (states !! idx)
-              bri' = show (round (bri !! idx) :: Int)  -- rounding the brightness value to remove decimal
+              --bri' = show (round (bri !! idx) :: Int)  -- rounding the brightness value to remove decimal
+              bri' = if states !! idx
+                     then show (round (bri !! idx) :: Int)
+                     else "==="
               -- Pad the name to the max length, left-align it
               paddedName = name ++ replicate (maxNameLength - length name) ' '
               -- Adjust state padding, ensuring fixed width for the state column
               paddedState = replicate (maxStateLength - length state) ' ' ++ state  -- Right-align 'state' in a 5-character wide column
               -- Adjust bri padding, ensuring fixed width for the bri column
-              paddedBri = replicate (maxBriLength - length bri') ' ' ++ bri'  -- Right-align 'bri' in a 5-character wide column
+              paddedBri = replicate (maxBriLength - length bri') ' ' ++ bri' -- Right-align 'bri' in a 5-character wide column
           in putStrLn $ " | " ++ paddedName ++ "  |  " ++ paddedState ++ "  |  " ++ paddedBri ++ "  |  "
         ) customIdxs
       putStrLn " |            |         |       |"
-      putStrLn " |---|λHue|---|--|0.1|--|--|?|--|"
-
-
--- |----- NAME -----|-- STATE --|-- BRI --|
--- |                |           |         |
--- |   Bed          |   false   |   100   |
--- |   Desk         |   false   |   100   |
--- |   Ceiling 1    |   false   |   100   |
--- |   Ceiling 2    |   false   |   100   |
--- |   Ceiling 3    |   false   |   100   |
--- |   Ceiling 4    |   false   |   100   |
--- |                |           |         |
--- |-----{pRue}-----|--{v1.0b}--|---{?}---|
-
-
+      putStrLn " |---|λHue|---|--|0.2|--|--|?|--|"
 
       let lightsIdx     = getListIndex ids
           lightsOnList  = getTrueIndexes states
@@ -452,7 +159,7 @@ loop manager key ip = do
       rawInput <- handleInput userInput
       case rawInput of
       -------------------------
-      --   Hue Light Order   --
+      --   Hue Light Order   -- This is what the Hue app shows originally
       -------------------------
       --  [  CEILING 2  ]     0 idx
       --   , CEILING 4        1
@@ -505,8 +212,7 @@ loop manager key ip = do
               then setLightBri     0 briPerc i
               else setToggleAndBri 0 briPerc i
           ) [2,4]
-
-        -- SI "b"  briPerc -> setLightBri 0 briPerc 4
+         -- SI "b"  briPerc -> setLightBri 0 briPerc 4
         SI "c1" briPerc -> setLightBri 0 briPerc 5
         SI "c2" briPerc -> setLightBri 0 briPerc 0
         SI "c3" briPerc -> setLightBri 0 briPerc 3
