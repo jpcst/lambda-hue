@@ -59,9 +59,10 @@ main = do
   if not (null args)
     then do
       Right body <- sendGetRequest manager key (apiHueUrl ip "/light")
-      let ids = extractIdsFromBody body
+      let ids    = extractIdsFromBody    body
           states = extractStatesFromBody body
-      runCommand manager key ip args ids states
+          bri    = extractBriFromBody    body
+      runCommand manager key ip args ids states bri
     else
       loop manager key ip
 

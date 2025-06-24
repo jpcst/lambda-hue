@@ -22,23 +22,8 @@ toggleMap =
   , ("all",  [0..5])
   ]
 
--- runCommand :: Manager -> String -> String -> [String] -> [String] -> [Bool] -> IO ()
--- runCommand manager key ip args ids states = case args of
---   ["toggle", name] -> case lookup name toggleMap of
---     Just idxs -> mapM_ toggle idxs
---     Nothing   -> putStrLn $ "Unknown name: " ++ name
---   _ -> putStrLn "Usage: lambda-hue toggle <desk|bed|c1|c2|c3|c4|c|all>"
---   where
---     hueUrl = apiHueUrl ip "/light"
---     toggle idx =
---       let currentState = states !! idx
---           lightId = ids !! idx
---       in void $
---          sendPutRequest manager key (apiLightUrl hueUrl lightId) $
---          buildJsonPayloadLightsToggleWithTt 0 (not currentState)
-
-runCommand :: Manager -> String -> String -> [String] -> [String] -> [Bool] -> IO ()
-runCommand manager key ip args ids states = case args of
+runCommand :: Manager -> String -> String -> [String] -> [String] -> [Bool] -> [Double] -> IO ()
+runCommand manager key ip args ids states bri = case args of
 
   [name] -> case lookup name toggleMap of -- ["toggle", name]
     Just [idx] -> toggle idx
@@ -53,6 +38,14 @@ runCommand manager key ip args ids states = case args of
            idxs  -> mapM_ (setBri perc) idxs
     Nothing ->
       putStrLn "Usage:\n  lambda-hue <name>\n  lambda-hue bri <0–100>\n  lambda-hue <name> <0–100>"
+
+  ["inc", incStr] -> case readMaybe incStr :: Maybe Int of
+    Just inc ->
+      let onLights = getTrueIndexes states
+      in case onLights of
+        [idx] -> setBri (round (bri !! idx) + inc) idx
+        idxs -> mapM_ (\i -> setBri (round (bri !! i) + inc) i) idxs
+    Nothing -> putStrLn "Usage: lambda-hue inc <int>"
 
   [name, percStr] -> case (lookup name toggleMap, readMaybe percStr :: Maybe Int) of
     (Just [idx], Just perc) -> setBri perc idx
@@ -79,6 +72,4 @@ runCommand manager key ip args ids states = case args of
             then buildJsonPayloadSetBri 0 perc
             else buildJsonPayloadToggleAndBri 0 True perc
       in void $
-         -- sendPutRequest manager key (apiLightUrl hueUrl lightId) $
-         -- buildJsonPayloadSetBri 0 perc
          sendPutRequest manager key (apiLightUrl hueUrl lightId) payload
