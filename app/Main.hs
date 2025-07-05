@@ -22,7 +22,7 @@ import System.Process (callCommand)
 clearScreen :: IO ()
 clearScreen = callCommand $ if os == "mingw32" then "cls" else "clear"
 
--- Reads or creates the file
+-- Read or create a file
 readOrCreateFile :: FilePath -> IO String
 readOrCreateFile filePath = do
   fileExists <- doesFileExist filePath
@@ -38,7 +38,7 @@ main = do
   ipFileContent <- readOrCreateFile ipFilePath
   ip <- if ipFileContent == "" -- File does not exist or is empty
           then do
-            bridge <- getMainBridgeIp -- Gets the ip from the API 
+            bridge <- getMainBridgeIp -- Gets the ip from the API
             case bridge of
               Left err  -> putStrLn err >> return "" -- Some error, return nothing
               Right ip' -> writeFile ipFilePath ip' >> return ip' -- IP was found, save it to the file
@@ -52,7 +52,6 @@ main = do
            else return keyFileContent -- key was generated or already existed
   putStrLn $ "Found Key: " ++ key ++ " at " ++ keyFilePath
 
-  -- foo Utils
   args <- getArgs
   manager <- getInsecureManager -- HTTP request SSL disabled
 
@@ -65,11 +64,6 @@ main = do
       runCommand manager key ip args ids states bri
     else
       loop manager key ip
-
-  -- test
-  -- if null args
-  --   then loop manager key ip -- print lights/states/bri and await for user input
-  --   else runCommand manager key ip args ids
 
 loop :: Manager -> String -> String -> IO ()
 loop manager key ip = do
@@ -184,7 +178,7 @@ loop manager key ip = do
         S s | s == "off" || s == "nox" -> mapM_ toggleLight lightsOnList
         -- S s | s == "all" || s == "on"   -> mapConcurrently_ toggleLight lightsOffList
         -- S s | s == "nox" || s == "off" -> mapConcurrently_ toggleLight lightsOnList
-        S "br"  -> mapM_ (setLightXy 0 (0.3   , 0.3))    (lightsOnList \\ [4]) -- I need to manually remove the BED light because the white LEDS are broken 
+        S "br"  -> mapM_ (setLightXy 0 (0.3   , 0.3))    (lightsOnList \\ [4]) -- I need to manually remove the BED light because the white LEDS are broken
         S "am"  -> mapM_ (setLightXy 0 (0.5203, 0.4141)) lightsOnList
         S "red" -> mapM_ (setLightXy 0 $ convertRgbToXy (256, 0, 0)) lightsOnList
         S "green" -> mapM_ (setLightXy 0 $ convertRgbToXy (0, 256, 0)) lightsOnList
@@ -224,7 +218,7 @@ loop manager key ip = do
         SS "d" "am" -> setLightXy 0 (0.5203, 0.4141) 2
         SS "c" "br" -> mapM_ (setLightXy 0 (0.3   , 0.3))    [5,0,3,1]
         SS "c" "am" -> mapM_ (setLightXy 0 (0.5203, 0.4141)) [5,0,3,1]
-        SS "c" "."  -> mapM_ (setToggleAndBri 0 100) [5,0,3,1] 
+        SS "c" "."  -> mapM_ (setToggleAndBri 0 100) [5,0,3,1]
 
         III r g b -> mapM_ (setLightXy 0 $ convertRgbToXy (r,g,b)) lightsOnList
         _ -> return ()

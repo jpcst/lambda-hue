@@ -45,8 +45,10 @@ buildJsonPayloadToggleAndBri transitionTime b bri = object
   , "dynamics" .= object [ "duration" .= transitionTime ]
   ]
 
--- JSON to set the color (x,y) -- CIE 1931 -- convertRgbToXy function available on Math.hs
-buildJsonPayloadSetXy :: Int -> (Double,Double) -> Aeson.Value
+-- JSON to set the color (x,y) 
+-- CIE 1931 for reference
+-- convertRgbToXy function available on Math.hs
+buildJsonPayloadSetXy :: Int -> (Double, Double) -> Aeson.Value
 buildJsonPayloadSetXy transitionTime (x,y) = object -- Hue API default transition time is 400 (ms)
   [ "color" .= object
       [ "xy"       .= object [ "x" .= x, "y" .= y ] -- True to turn ON, False to turn OFF
