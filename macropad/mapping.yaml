@@ -44,11 +44,11 @@ layers:
       # Knobs can be rotated counter-clockwise (ccw) or clockwise (cw)
       # and pressed down.
       - ccw: "ctrl-f14"
-        press: "ctrl-shift-f14"
+        press: "ctrl-f19"
         cw: "ctrl-f15"
-      - ccw: "wheelup"
-        press: "ctrl-shift-f15"
-        cw: "wheeldown"
+      - ccw: "alt-f16"
+        press: "alt-f19"
+        cw: "alt-f17"
 
   - buttons:
       # Mouse events are clicks ('click/lclick', 'rclick', 'mclick') or

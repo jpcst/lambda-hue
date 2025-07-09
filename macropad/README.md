@@ -7,3 +7,6 @@
 * Set commands with Hammerspoon (macOS)
 	* https://github.com/Hammerspoon/hammerspoon
 	* ~/.hammerspoon/init.lua
+
+- [ ] Clean up init.lua
+- [ ] Clean up mapping.yaml

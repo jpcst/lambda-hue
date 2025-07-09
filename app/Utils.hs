@@ -37,10 +37,6 @@ toggleMapColors =
 runCommand :: Manager -> String -> String -> [String] -> [String] -> [Bool] -> [Double] -> IO ()
 runCommand manager key ip args ids states bri = case args of
 
-  --[name] -> case lookup name toggleMapLight of -- ["toggle", name]
-  --  Just [idx] -> toggle idx
-  --  Just idxs  -> mapM_ toggle idxs
-  --  Nothing    -> putStrLn $ "Unknown name: " ++ name
   [name] ->
     if name == "nox"
       then do
@@ -52,7 +48,6 @@ runCommand manager key ip args ids states bri = case args of
       Just [idx] -> toggle idx
       Just idxs  -> mapM_ toggle idxs
       Nothing    -> putStrLn $ "Unknow name: " ++ name
-
 
   ["rgb", rStr, gStr, bStr] ->
     case (readMaybe rStr :: Maybe Int, readMaybe gStr :: Maybe Int, readMaybe bStr :: Maybe Int) of
