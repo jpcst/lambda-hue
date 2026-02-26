@@ -8,3 +8,4 @@ dist-newstyle/
 .DS_Store
 *.swp
 *.swo
+*.bak
